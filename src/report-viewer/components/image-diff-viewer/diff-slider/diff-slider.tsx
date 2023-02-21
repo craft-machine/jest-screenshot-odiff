@@ -110,7 +110,7 @@ export class DiffSlider extends React.Component<DiffSliderProps> {
                 <nav className={cx("level", "settings")}>
                     <div className={cx("level-item", "has-text-centered")}>
                         <div>
-                            <div className={cx("heading")}>Diff Opacity</div>
+                            <div className={cx("heading")}>Diff Opacity Slider</div>
                             <input
                                 className={cx("title")}
                                 type="range"
@@ -131,6 +131,8 @@ export class DiffSlider extends React.Component<DiffSliderProps> {
                     className={cx("viewer-container")}
                     ref={this.refContainer}
                 >
+                    {/* To keep parent container sized, but it'll be hidden behind other images */}
+                    <img ref={this.refImageDiff} src={diff} style={{ opacity: 0, width: '100%' }} />
                     <div className={cx("slider")} style={{ left: `${this.sliderX * 100}%` }}>
                         <div className={cx("top")} />
                         <div className={cx("bottom")} />

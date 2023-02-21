@@ -1,21 +1,16 @@
-import { decode, readPngFileSync, writePngFileSync, PngImage } from "node-libpng";
-import { diffImages, DiffImage } from "native-image-diff";
 import chalk from "chalk";
-import { existsSync, writeFileSync, readFileSync } from "fs";
+
+import os from 'os';
+import { existsSync, writeFileSync, mkdtempSync, copyFileSync } from "fs";
+
+import { compare } from './odiff-sync';
 import { getSnapshotPath, getReportPath, getReportDir } from "./filenames";
 import { isJestTestConfiguration, MatcherResult } from "./jest";
 import { sync as mkdirp } from "mkdirp";
 import * as path from "path";
 import { JestScreenshotConfiguration } from "./config";
 
-export interface ImageMatcherResult extends MatcherResult {
-    diffImage?: DiffImage;
-    changedRelative?: number;
-    totalPixels?: number;
-    changedPixels?: number;
-    testFileName?: string;
-    snapshotNumber?: number;
-}
+const OS_TMP_DIR = os.tmpdir();
 
 export interface ToMatchImageSnapshotParameters {
     /**
@@ -25,19 +20,27 @@ export interface ToMatchImageSnapshotParameters {
     path?: string;
 }
 
+export interface ImageMatcherResult extends MatcherResult {
+    changedRelative?: number;
+    changedPixels?: number;
+    testFileName?: string;
+    snapshotNumber?: number;
+}
+
 /**
  * Performs the actual check for equality of two images.
  *
- * @param snapshotImage The image from the snapshot.
- * @param receivedImage The image received from the `expect(...)` call.
+ * @param snapshotPath The image from the snapshot.
+ * @param receivedPath The image received from the `expect(...)` call.
  * @param snapshotNumber The number of the snapshot in this test.
  * @param configuration The configuration of the call to `toMatchImageSnapshot`.
  *
  * @return A `MatcherResult` with `pass` and a message which can be handed to jest.
  */
 function checkImages(
-    snapshotImage: PngImage,
-    receivedImage: PngImage,
+    snapshotPath: string,
+    receivedPath: string,
+    diffPath: string,
     snapshotNumber: number,
     configuration: JestScreenshotConfiguration,
 ): ImageMatcherResult {
@@ -47,47 +50,54 @@ function checkImages(
         pixelThresholdAbsolute,
         pixelThresholdRelative,
     } = configuration;
+
     // Perform the actual image diff.
-    const { pixels: changedPixels, image: diffImage } = diffImages({
-        image1: receivedImage,
-        image2: snapshotImage,
-        colorThreshold,
-        detectAntialiasing,
+    const { match, reason, diffCount, diffPercentage } = compare(receivedPath, snapshotPath, diffPath, {
+        antialiasing: detectAntialiasing,
+        threshold: colorThreshold,
+        outputDiffMask: true,
     });
+
     const expected = `stored snapshot ${snapshotNumber}`;
     const preamble = `${chalk.red("Received value")} does not match ${chalk.green(expected)}.`;
-    const snapshotImagePixels = snapshotImage.width * snapshotImage.height;
-    const receivedImagePixels = receivedImage.width * receivedImage.height;
-    const totalPixels = Math.max(snapshotImagePixels, receivedImagePixels);
-    const changedRelative = changedPixels / totalPixels;
-    if (typeof pixelThresholdAbsolute === "number" && changedPixels > pixelThresholdAbsolute) {
+
+    if (typeof pixelThresholdAbsolute === "number" && diffCount > pixelThresholdAbsolute) {
         return {
             pass: false,
             message: () =>
                 `${preamble}\n\n` +
                 `Expected less than ${chalk.green(`${pixelThresholdAbsolute} pixels`)} to have changed, ` +
-                `but ${chalk.red(`${changedPixels} pixels`)} changed.`,
-            diffImage,
-            changedRelative,
-            totalPixels,
-            changedPixels,
+                `but ${chalk.red(`${diffCount} pixels`)} changed.`,
+            changedRelative: diffPercentage,
+            changedPixels: diffCount,
         };
     }
-    if (typeof pixelThresholdRelative === "number" && changedRelative > pixelThresholdRelative) {
+
+    if (typeof pixelThresholdRelative === "number" && diffPercentage > pixelThresholdRelative) {
         const percentThreshold = (pixelThresholdRelative * 100).toFixed(2);
-        const percentChanged = (changedRelative * 100).toFixed(2);
+        const percentChanged = (diffPercentage * 100).toFixed(2);
         return {
             pass: false,
             message: () =>
                 `${preamble}\n\n` +
                 `Expected less than ${chalk.green(`${percentThreshold}%`)} of the pixels to have changed, ` +
                 `but ${chalk.red(`${percentChanged}%`)} of the pixels changed.`,
-            diffImage,
-            changedRelative,
-            totalPixels,
-            changedPixels,
+            changedRelative: diffPercentage,
+            changedPixels: diffCount,
         };
     }
+
+    if (match === false && reason === 'layout-diff') {
+        return {
+            pass: false,
+            message: () =>
+                `${preamble}\n\n` +
+                `Expected snapshot dimensions to be the same, but dimensions changed.`,
+            changedRelative: diffPercentage,
+            changedPixels: diffCount,
+        };
+    }
+
     return { pass: true };
 }
 
@@ -144,24 +154,20 @@ export function toMatchImageSnapshot(
         };
     }
 
-    // If received and expected Buffers are equal, there is no need to perform actual check
-    const snapshotBuffer = readFileSync(snapshotPath);
-    if (snapshotBuffer.equals(received)) {
-        return { pass: true };
-    }
+    const tmpComparisonDir = mkdtempSync(path.join(OS_TMP_DIR, 'jest-screenshot-odiff-'));
+    const tmpReceivedPath = path.join(tmpComparisonDir, 'received.png');
+    const tmpDiffPath = path.join(tmpComparisonDir, 'diff.png');
 
-    // Decode the new image and read the snapshot.
-    const snapshotImage = decode(snapshotBuffer);
-    const receivedImage = decode(received);
+    writeFileSync(tmpReceivedPath, received);
+
     // Perform the actual diff of the images.
     const {
         pass,
         message,
-        diffImage,
         changedRelative,
-        totalPixels,
         changedPixels,
-    } = checkImages(snapshotImage, receivedImage, snapshotNumber, configuration);
+    } = checkImages(snapshotPath, tmpReceivedPath, tmpDiffPath, snapshotNumber, configuration);
+
     if (!pass) {
         if (_updateSnapshot === "all") {
             snapshotState.updated++;
@@ -170,29 +176,30 @@ export function toMatchImageSnapshot(
         }
         if (!noReport) {
             mkdirp(reportPath);
+
             const receivedPath = path.join(reportPath, "received.png");
             const diffPath = path.join(reportPath, "diff.png");
             const snapshotPathReport = path.join(reportPath, "snapshot.png");
+
             writeFileSync(receivedPath, received);
-            writePngFileSync(diffPath, diffImage.data, diffImage);
-            writeFileSync(receivedPath, received);
-            writeFileSync(snapshotPathReport, readFileSync(snapshotPath));
-            writePngFileSync(diffPath, diffImage.data, diffImage);
-            writeFileSync(path.join(reportPath, "info.json"), JSON.stringify({
-                testName: currentTestName,
-                message: message(),
-                changedRelative,
-                totalPixels,
-                changedPixels,
-                testFileName: path.relative(process.cwd(), testPath),
-                snapshotNumber,
-                receivedPath: path.relative(getReportDir(reportDir), receivedPath),
-                diffPath: path.relative(getReportDir(reportDir), diffPath),
-                snapshotPath: path.relative(getReportDir(reportDir), snapshotPathReport),
-                width: Math.max(snapshotImage.width, receivedImage.width),
-                height: Math.max(snapshotImage.height, receivedImage.height),
-            }));
+            copyFileSync(tmpDiffPath, diffPath);
+            copyFileSync(snapshotPath, snapshotPathReport);
+            writeFileSync(
+                path.join(reportPath, "info.json"),
+                JSON.stringify({
+                    testName: currentTestName,
+                    message: message(),
+                    changedRelative,
+                    changedPixels,
+                    testFileName: path.relative(process.cwd(), testPath),
+                    snapshotNumber,
+                    receivedPath: path.relative(getReportDir(reportDir), receivedPath),
+                    diffPath: path.relative(getReportDir(reportDir), diffPath),
+                    snapshotPath: path.relative(getReportDir(reportDir), snapshotPathReport),
+                })
+            );
         }
     }
+
     return { pass, message };
 }

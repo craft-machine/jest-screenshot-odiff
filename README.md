@@ -1,5 +1,11 @@
 # jest-screenshot
 
+---
+
+> This is a forked version of https://github.com/Prior99/jest-screenshot that was switched from `native-image-diff` and `node-libpng` to https://github.com/dmtrKovalenko/odiff
+
+---
+
 [![npm](https://img.shields.io/npm/v/jest-screenshot.svg)](https://www.npmjs.com/package/jest-screenshot)
 [![Build Status](https://travis-ci.org/Prior99/jest-screenshot.svg?branch=master)](https://travis-ci.org/Prior99/jest-screenshot)
 [![Coverage Status](https://coveralls.io/repos/github/Prior99/jest-screenshot/badge.svg?branch=master)](https://coveralls.io/github/Prior99/jest-screenshot?branch=master)
@@ -146,7 +152,7 @@ describe("My fancy image", () => {
 ```
 
 It is possible to import ```toMatchImageSnapshot()``` for custom assertions.
-As it requires configuration as second argument, ```config()``` function 
+As it requires configuration as second argument, ```config()``` function
 (_which is responsible for reading configuration from  jest-screenshot.json/package.json_) is also exposed.
 
 ```typescript

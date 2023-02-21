@@ -23,7 +23,7 @@ const template = (testResults: ReportMetadata) => `<html>
 </html>`;
 
 
-export = class JestScreenshotReporter { // tslint:disable-line
+export class JestScreenshotReporter {
     private config = config();
 
     constructor() {
@@ -89,3 +89,5 @@ export = class JestScreenshotReporter { // tslint:disable-line
         );
     }
 };
+
+export default JestScreenshotReporter;

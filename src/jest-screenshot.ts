@@ -1,5 +1,4 @@
 import { toMatchImageSnapshot, ToMatchImageSnapshotParameters } from "./to-match-image-snapshot";
-import { sync as mkdirp } from "mkdirp";
 import { JestScreenshotConfiguration, config } from "./config";
 
 /**
