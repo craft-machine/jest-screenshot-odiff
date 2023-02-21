@@ -1,10 +1,22 @@
-# jest-screenshot
+# @craft.co/jest-screenshot-odiff
 
 ---
 
 > This is a forked version of https://github.com/Prior99/jest-screenshot that was switched from `native-image-diff` and `node-libpng` to https://github.com/dmtrKovalenko/odiff
 
 ---
+
+## Build/Publish
+
+On Node 18
+
+```bash
+NODE_OPTIONS=--openssl-legacy-provider yarn webpack
+yarn build
+npm publish --access public
+```
+
+## Original Readme
 
 [![npm](https://img.shields.io/npm/v/jest-screenshot.svg)](https://www.npmjs.com/package/jest-screenshot)
 [![Build Status](https://travis-ci.org/Prior99/jest-screenshot.svg?branch=master)](https://travis-ci.org/Prior99/jest-screenshot)
